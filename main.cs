@@ -1,4 +1,4 @@
-namespace bridge
+namespace p5
 {
     using System.Net; // HttpListener
     using System.Text.Json; // JsonSerializer
@@ -76,6 +76,9 @@ namespace bridge
     {
         private static readonly Logger logger = new("admin");
         private static bool isFinish = true;
+        private static TextBox? processNameTextBox;
+        private static TextBox? windowTitleTextBox;
+        private static TextBox? msgContentTextBox;
 
 
         [DllImport("user32.dll")]
@@ -263,9 +266,22 @@ namespace bridge
                 logger.Info($"收到POST JSON请求: {jsonBody}|path:{request.Url?.PathAndQuery}");
 
                 // 将JSON数据发送到剪贴板
-                SendToClipboard(jsonBody);
+                SendToClipboard(jsonBody, "post");
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        Thread.Sleep(2000);
+                        string processName = (processNameTextBox != null) ? processNameTextBox.Text : "";
+                        string windowTitle = (windowTitleTextBox != null) ? windowTitleTextBox.Text : "";
+                        SendCustomMessage(processName, windowTitle, false);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Error($"使用剪贴板转发消息异常|{ex.Message}");
+                    }
+                });
 
-                // string responseString = $"\"OK\": {jsonBody}";
                 // 处理JSON数据并创建标准JSON响应
                 var responseObj = new JsonResponse
                 {
@@ -325,7 +341,7 @@ namespace bridge
             logger.Info("HTTP服务器已停止");
         }
 
-        public static void SendToClipboard(string text)
+        public static void SendToClipboard(string text, string sFrom)
         {
             try
             {
@@ -335,11 +351,11 @@ namespace bridge
                     try
                     {
                         Clipboard.SetText(text);
-                        logger.Info($"数据已写入剪贴板|len:{text.Length}");
+                        logger.Info($"已发送消息内容到剪贴板|len:{text.Length}|{sFrom}");
                     }
                     catch (Exception clipboardEx)
                     {
-                        logger.Error($"写入剪贴板失败: {clipboardEx.Message}");
+                        logger.Error($"写入剪贴板失败|{clipboardEx.Message}|{sFrom}");
                     }
                 });
                 clipboardThread.SetApartmentState(ApartmentState.STA);
@@ -348,7 +364,7 @@ namespace bridge
             }
             catch (Exception ex)
             {
-                logger.Error($"处理剪贴板操作时发生错误: {ex.Message}");
+                logger.Error($"处理剪贴板操作时发生错误|{ex.Message}|{sFrom}");
             }
         }
 
@@ -459,8 +475,15 @@ namespace bridge
             }
         }
 
-        public static void SendCustomMessage(string processName, string windowTitle)
+        public static void SendCustomMessage(string processName, string windowTitle, bool bCheck = true)
         {
+            if ((processName == "") || (windowTitle == ""))
+            {
+                logger.Info($"进程名或窗口标题不能为空|{processName}|{windowTitle}");
+                return;
+            }
+
+            if (bCheck)
             {
                 // 检查剪贴板内容
                 if (Clipboard.ContainsText())
@@ -505,40 +528,99 @@ namespace bridge
             Form form = new()
             {
                 Text = "Admin Tool",
-                Size = new Size(300, 200)
+                Size = new Size(500, 200)
             };
 
-            Button button = new()
+            AddTablePanel(form);
+
+            return form;
+        }
+
+        public static void AddTablePanel(Form form)
+        {
+            // 创建TableLayoutPanel
+            TableLayoutPanel tableLayoutPanel = new()
             {
-                Text = "测试发送消息",
-                // Location = new Point(100, 10),
-                Size = new Size(100, 30)
+                Dock = DockStyle.None,
+                Location = new Point(10, 10),
+                Size = new Size(form.ClientSize.Width - 20, form.ClientSize.Height - 20),
+                ColumnCount = 2,
+                RowCount = 4,
+                // Margin = new Padding(10, 10, 0, 0),
+                // Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
             };
-            button.Location = new Point(
-                (form.ClientSize.Width - button.Width) / 2,
-                (form.ClientSize.Height - button.Height) / 2
-            );
-            button.Click += (sender, e) =>
+
+            // 设置列宽和行高
+            tableLayoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80)); // 标签列
+            tableLayoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // 输入框列
+            // tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
+            // tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
+            // tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
+            // tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
+
+            // 添加控件
+            tableLayoutPanel.Controls.Add(new Label
+            {
+                Text = "进程名:",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 0, 0);
+            processNameTextBox = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, Text = "weixin" };
+            tableLayoutPanel.Controls.Add(processNameTextBox, 1, 0);
+
+            tableLayoutPanel.Controls.Add(new Label
+            {
+                Text = "窗口名:",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 0, 1);
+            windowTitleTextBox = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, Text = "空无一" };
+            tableLayoutPanel.Controls.Add(windowTitleTextBox, 1, 1);
+
+            tableLayoutPanel.Controls.Add(new Label
+            {
+                Text = "消息内容:",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 0, 2);
+            msgContentTextBox = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right };
+            tableLayoutPanel.Controls.Add(msgContentTextBox, 1, 2);
+
+            Button btn = new()
+            {
+                Text = "测试发送",
+                Anchor = AnchorStyles.Right,
+                Size = new Size(100, 35),
+            };
+            btn.Click += (sender, e) =>
             {
                 if (!isFinish)
                 {
                     return;
                 }
                 isFinish = false;
-                logger.Info("测试消息");
-                SendCustomMessage("weixin", "空无一");
+                logger.Info("测试发送消息");
+                CopyMessage();
+                SendCustomMessage(processNameTextBox.Text, windowTitleTextBox.Text);
                 isFinish = true;
             };
-            form.Resize += (sender, e) =>
-            {
-                button.Location = new Point(
-                    (form.ClientSize.Width - button.Width) / 2,
-                    (form.ClientSize.Height - button.Height) / 2
-                );
-            };
-            form.Controls.Add(button);
+            tableLayoutPanel.Controls.Add(btn, 1, 3);
 
-            return form;
+            form.Controls.Add(tableLayoutPanel);
+        }
+
+        public static void CopyMessage()
+        {
+            if (msgContentTextBox == null)
+            {
+                return;
+            }
+            string text = msgContentTextBox.Text;
+            if (text == "")
+            {
+                return;
+            }
+            SendToClipboard(text, "copy");
         }
 
         public static void DeInitApp()
